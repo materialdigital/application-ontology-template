@@ -1,2 +1,0 @@
-term
-https://w3id.org/pmd/ao/TEST_0000000
