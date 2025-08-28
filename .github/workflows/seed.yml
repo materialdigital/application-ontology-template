@@ -99,12 +99,6 @@ jobs:
           echo "Files copied to root:"
           ls -la
 
-      - name: Clean up target directory
-        run: |
-          echo "Removing target directory to avoid git conflicts..."
-          rm -rf target/
-          git status
-
       - name: Commit files to branch
         uses: EndBug/add-and-commit@v9
         with:
