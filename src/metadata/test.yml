@@ -1,0 +1,28 @@
+# PURL configuration for http://purl.obolibrary.org/obo/test
+
+idspace: TEST
+base_url: /obo/test
+
+products:
+- test.owl: https://raw.githubusercontent.com/materialdigital/app-ontology-template/main/test.owl
+- test.obo: https://raw.githubusercontent.com/materialdigital/app-ontology-template/main/test.obo
+
+term_browser: ontobee
+example_terms:
+- TEST_0000000
+
+entries:
+
+- prefix: /releases/
+  replacement: https://raw.githubusercontent.com/materialdigital/app-ontology-template/v
+
+- prefix: /tracker/
+  replacement: https://github.com/materialdigital/app-ontology-template/issues
+
+- prefix: /about/
+  replacement: http://www.ontobee.org/ontology/TEST?iri=http://purl.obolibrary.org/obo/
+
+## generic fall-through, serve direct from github by default
+- prefix: /
+  replacement: https://raw.githubusercontent.com/materialdigital/app-ontology-template/main/
+
