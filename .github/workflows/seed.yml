@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
     inputs:
       ontology_id:
-        description: 'Ontology ID (overrides id in seed.yaml)'
+        description: 'Ontology ID (replaces id in seed.yaml)'
         required: true
       uribase_suffix:
-        description: 'URI base suffix (overrides uribase_suffix in seed.yaml)'
+        description: 'URI base suffix (replaces uribase_suffix in seed.yaml)'
         required: true
       odk_tag:
         description: 'ODK Docker tag to use'
@@ -42,7 +42,7 @@ jobs:
 
       - name: Generate branch name
         run: |
-          BRANCH_NAME="seed-${{ github.event.inputs.ontology_id }}-$(date +%Y%m%d-%H%M%S)"
+          BRANCH_NAME="fresh-seed"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Verify seed config file exists
@@ -52,6 +52,22 @@ jobs:
             exit 1
           fi
           echo "Using configuration file: ${{ github.event.inputs.config_file || 'seed.yaml' }}"
+
+      - name: Update seed.yaml with input values
+        run: |
+          CONFIG_FILE="${{ github.event.inputs.config_file || 'seed.yaml' }}"
+          
+          echo "Original seed.yaml content:"
+          cat "$CONFIG_FILE"
+          
+          # Replace id value
+          sed -i "s/^id:.*/id: ${{ github.event.inputs.ontology_id }}/" "$CONFIG_FILE"
+          
+          # Replace uribase_suffix value
+          sed -i "s/^uribase_suffix:.*/uribase_suffix: ${{ github.event.inputs.uribase_suffix }}/" "$CONFIG_FILE"
+          
+          echo "Updated seed.yaml content:"
+          cat "$CONFIG_FILE"
 
       - name: Run ODK seed
         env:
@@ -65,9 +81,7 @@ jobs:
             --gitname "$ODK_GITNAME" \
             --gitemail "$ODK_GITEMAIL" \
             -c \
-            -C ${{ github.event.inputs.config_file || 'seed.yaml' }} \
-            --id ${{ github.event.inputs.ontology_id }} \
-            --uribase-suffix ${{ github.event.inputs.uribase_suffix }}
+            -C ${{ github.event.inputs.config_file || 'seed.yaml' }}
 
       - name: Copy generated files to root
         run: |
