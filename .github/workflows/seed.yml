@@ -81,7 +81,7 @@ jobs:
             --gitemail "$ODK_GITEMAIL" \
             -c \
             -C ${{ github.event.inputs.config_file || 'seed.yaml' }}
-
+      
       - name: Copy generated files to root
         run: |
           TARGET_DIR="target/${{ github.event.inputs.ontology_id }}"
@@ -98,6 +98,12 @@ jobs:
           # List what was copied
           echo "Files copied to root:"
           ls -la
+
+      - name: Clean up target directory
+        run: |
+          echo "Removing target directory to avoid git conflicts..."
+          rm -rf target/
+          git status
 
       - name: Commit files to branch
         uses: EndBug/add-and-commit@v9
