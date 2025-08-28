@@ -4,7 +4,7 @@
 .DS_Store
 semantic.cache
 bin/
-.trunk/
+
 *.tmp
 *.tmp.obo
 *.tmp.owl
@@ -14,15 +14,15 @@ bin/
 
 .github/token.txt
 
-/tto.owl
-/tto.obo
-/tto.json
-/tto.db
-/tto-base.*
-/tto-basic.*
-/tto-full.*
-/tto-simple.*
-/tto-simple-non-classified.*
+/sdf.owl
+/sdf.obo
+/sdf.json
+/sdf.db
+/sdf-base.*
+/sdf-basic.*
+/sdf-full.*
+/sdf-simple.*
+/sdf-simple-non-classified.*
 /mappings/
 /patterns/
 /reports/
@@ -32,15 +32,15 @@ src/ontology/mirror
 src/ontology/mirror/*
 src/ontology/reports/*
 !src/ontology/reports/release-diff.md
-src/ontology/tto.owl
-src/ontology/tto.obo
-src/ontology/tto.json
-src/ontology/tto.db
-src/ontology/tto-base.*
-src/ontology/tto-basic.*
-src/ontology/tto-full.*
-src/ontology/tto-simple.*
-src/ontology/tto-simple-non-classified.*
+src/ontology/sdf.owl
+src/ontology/sdf.obo
+src/ontology/sdf.json
+src/ontology/sdf.db
+src/ontology/sdf-base.*
+src/ontology/sdf-basic.*
+src/ontology/sdf-full.*
+src/ontology/sdf-simple.*
+src/ontology/sdf-simple-non-classified.*
 
 src/ontology/seed.txt
 src/ontology/dosdp-tools.log
@@ -48,8 +48,8 @@ src/ontology/ed_definitions_merged.owl
 src/ontology/ontologyterms.txt
 src/ontology/simple_seed.txt
 src/ontology/patterns
-src/ontology/merged-tto-edit.owl
-src/ontology/tto-edit.properties
+src/ontology/merged-sdf-edit.owl
+src/ontology/sdf-edit.properties
 
 src/ontology/target/
 src/ontology/tmp/*
