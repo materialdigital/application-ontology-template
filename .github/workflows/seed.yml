@@ -40,9 +40,14 @@ jobs:
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
+      - name: Generate unique branch name
+        run: |
+          BRANCH_NAME="fresh-seed-$(date +%Y%m%d-%H%M%S)"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
       - name: Create and switch to branch
         run: |
-          git checkout -b fresh-seed
+          git checkout -b ${{ env.BRANCH_NAME }}
 
       - name: Verify seed config file exists
         run: |
@@ -115,7 +120,7 @@ jobs:
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
-          branch: fresh-seed
+          branch: ${{ env.BRANCH_NAME }}
           base: main
           title: "ODK Seed: ${{ github.event.inputs.ontology_id }}"
           body: |
