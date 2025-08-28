@@ -45,10 +45,6 @@ jobs:
           BRANCH_NAME="fresh-seed-$(date +%Y%m%d-%H%M%S)"
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
-      - name: Create and switch to branch
-        run: |
-          git checkout -b ${{ env.BRANCH_NAME }}
-
       - name: Verify seed config file exists
         run: |
           if [ ! -f "${{ github.event.inputs.config_file || 'seed.yaml' }}" ]; then
@@ -110,19 +106,13 @@ jobs:
           rm -rf target/
           git status
 
-      - name: Commit files to branch
-        uses: EndBug/add-and-commit@v9
-        with:
-          message: "ODK seed generated files for ${{ github.event.inputs.ontology_id }} using ${{ github.event.inputs.config_file || 'seed.yaml' }}"
-          add: ". --force"
-          push: false  # Don't push yet, let create-pull-request handle it
-
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
           branch: ${{ env.BRANCH_NAME }}
           base: main
           title: "ODK Seed: ${{ github.event.inputs.ontology_id }}"
+          commit-message: "ODK seed generated files for ${{ github.event.inputs.ontology_id }} using ${{ github.event.inputs.config_file || 'seed.yaml' }}"
           body: |
             ## ODK Seed Generated Files
             
