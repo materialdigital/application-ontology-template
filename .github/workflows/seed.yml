@@ -40,10 +40,9 @@ jobs:
           git config --global user.name "${{ github.actor }}"
           git config --global user.email "${{ github.actor }}@users.noreply.github.com"
 
-      - name: Generate branch name
+      - name: Create and switch to branch
         run: |
-          BRANCH_NAME="fresh-seed"
-          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          git checkout -b fresh-seed
 
       - name: Verify seed config file exists
         run: |
@@ -100,18 +99,18 @@ jobs:
           echo "Files copied to root:"
           ls -la
 
-      - name: Commit and push to new branch
+      - name: Commit files to branch
         uses: EndBug/add-and-commit@v9
         with:
           message: "ODK seed generated files for ${{ github.event.inputs.ontology_id }} using ${{ github.event.inputs.config_file || 'seed.yaml' }}"
           add: ". --force"
-          new_branch: ${{ env.BRANCH_NAME }}
-          push: true
+          push: false  # Don't push yet, let create-pull-request handle it
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
-          branch: ${{ env.BRANCH_NAME }}
+          branch: fresh-seed
+          base: main
           title: "ODK Seed: ${{ github.event.inputs.ontology_id }}"
           body: |
             ## ODK Seed Generated Files
