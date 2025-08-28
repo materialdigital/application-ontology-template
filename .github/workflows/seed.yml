@@ -1,0 +1,59 @@
+# SEEDING ODK workflow
+
+name: SEED
+
+# Controls when the action will run.
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      odk_tag:
+        description: 'ODK Docker tag to use'
+        required: false
+        default: 'latest'
+      config_file:
+        description: 'Configuration file name'
+        required: false
+        default: 'seed.yaml'
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "seed_ontology"
+  seed_ontology:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+    container: obolibrary/odkfull:${{ github.event.inputs.odk_tag || 'latest' }}
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      - name: Set up Git config
+        run: |
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+
+      - name: Verify seed config file exists
+        run: |
+          if [ ! -f "${{ github.event.inputs.config_file || 'seed.yaml' }}" ]; then
+            echo "Error: Configuration file ${{ github.event.inputs.config_file || 'seed.yaml' }} not found!"
+            exit 1
+          fi
+          echo "Using configuration file: ${{ github.event.inputs.config_file || 'seed.yaml' }}"
+
+      - name: Run ODK seed
+        env:
+          ODK_IMAGE: odkfull
+          ODK_TAG: ${{ github.event.inputs.odk_tag || 'latest' }}
+          ODK_GITNAME: ${{ github.actor }}
+          ODK_GITEMAIL: ${{ github.actor }}@users.noreply.github.com
+        run: |
+          echo "This script only works with ODK 1.3.2 and later. For ODK 1.3.1 or earlier, use https://raw.githubusercontent.com/INCATools/ontology-development-kit/v1.3.1/seed-via-docker.sh"
+          /tools/odk.py seed --gitname "$ODK_GITNAME" --gitemail "$ODK_GITEMAIL" -c -C ${{ github.event.inputs.config_file || 'seed.yaml' }}
+
+      - name: Commit seeded files
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: "ODK seed generated files using ${{ github.event.inputs.config_file || 'seed.yaml' }}"
+          add: ". --force"
