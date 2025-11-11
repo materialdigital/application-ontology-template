@@ -1,0 +1,11 @@
+
+https://w3id.org/pmd/co/PMD_0000833 #manufacturing process
+https://w3id.org/pmd/co/PMD_0001025 #assay
+https://w3id.org/pmd/co/PMD_0000583 #computing process
+https://w3id.org/pmd/co/PMD_0000892 #portion of matter
+https://w3id.org/pmd/co/PMD_0000602 #Device
+https://w3id.org/pmd/co/PMD_0000943 #Specimen role
+https://w3id.org/pmd/co/PMD_0000850 #mechanical quality
+https://w3id.org/pmd/co/PMD_0000863 #Morphological quality
+https://w3id.org/pmd/co/PMD_0000985 #Thermodynamic quality
+https://w3id.org/pmd/co/PMD_0000005 #Material property

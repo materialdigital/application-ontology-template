@@ -85,7 +85,7 @@ jobs:
           sed -i "s/^repo:.*/repo: $GITHUB_REPO/" "$CONFIG_FILE"
 
           # Set namespaces block automatically
-          NS="https://w3id.org/pmd/ao/${{ github.event.inputs.uribase_suffix }}/"
+          NS="https://w3id.org/pmd/${{ github.event.inputs.uribase_suffix }}/"
           if grep -q "^namespaces:" "$CONFIG_FILE"; then
             sed -i "/^namespaces:/,+1c\\
           namespaces:\\
@@ -107,7 +107,7 @@ jobs:
           echo "" >> "$CONFIG_FILE"
           echo "idranges:" >> "$CONFIG_FILE"
           echo "  - idsfor: $ONT_ID" >> "$CONFIG_FILE"
-          echo "    idprefix: https://w3id.org/pmd/ao/$URIBASE_SUFFIX/${ONT_ID_UPPER}_" >> "$CONFIG_FILE"
+          echo "    idprefix: https://w3id.org/pmd/$URIBASE_SUFFIX/${ONT_ID_UPPER}_" >> "$CONFIG_FILE"
           echo "    iddigits: 7" >> "$CONFIG_FILE"
 
           echo "Updated $CONFIG_FILE content:"
@@ -159,8 +159,8 @@ jobs:
           # lowercase uribase_suffix from workflow input
           URIBASE_SUFFIX="${{ github.event.inputs.uribase_suffix }}"
 
-          # replace idprefix line using sed: insert uribase_suffix after /ao/
-          sed -i "s|idprefix: \"https://w3id.org/pmd/ao/\(.*\)_\"|idprefix: \"https://w3id.org/pmd/ao/${URIBASE_SUFFIX}/\1_\"|" "$IDRANGES_FILE"
+          # replace idprefix line using sed: insert uribase_suffix after /
+          sed -i "s|idprefix: \"https://w3id.org/pmd/\(.*\)_\"|idprefix: \"https://w3id.org/pmd/${URIBASE_SUFFIX}/\1_\"|" "$IDRANGES_FILE"
 
           echo "Updated idranges.owl:"
           head -n 20 "$IDRANGES_FILE"
