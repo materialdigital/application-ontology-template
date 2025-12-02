@@ -1,0 +1,664 @@
+# ==============================================================================
+# WORKFLOW: Setup New Ontology (End-to-End Production Ready)
+# ==============================================================================
+# Purpose: Initial setup of the ontology repository. This workflow automates the
+# end-to-end configuration of a new PMD application ontology using ODK.
+# It handles metadata, URI normalization (lowercase paths), imports,
+# components, ID ranges, terms files, and generates a customized README.
+#
+# Key Features:
+# - Normalizes ontology_id to lowercase for URIs/file paths (e.g., "AUTOCE" → "autoce").
+# - Uppercase preferredPrefix for entity IDs (e.g., "AUTOCE_0000001").
+# - Enforces SLME module extraction for imports to minimize bloat.
+# - Generates Manchester-syntax ID ranges OWL for dicer-cli compatibility.
+# - Custom terms files support (e.g., "PMD-terms.txt" → "pmd_terms.txt").
+# - Sets directory-style ontology IRI (e.g., https://w3id.org/pmd/autoce/).
+# - Appends comprehensive README sections (Development, Structure, Contribution).
+#
+# Usage: Trigger via GitHub Actions with inputs (ontology_id lowercase recommended).
+# Assumes input files: imports.txt, components.txt, creators.txt (optional).
+#
+# IMPROVEMENTS & FIXES:
+# 1. ID Ranges (Step 7): Generates valid Manchester Syntax compliant with dicer-cli
+# (using Prefixes and AnnotationProperty declarations). FIXED: Proper indentation,
+# added missing prefixes (dce, xml, rdfs), corrected annotations (commas, no quotes
+# on iddigits), robust line reading for creators.txt (handles names with spaces via
+# IFS=$'\t' and line processing). BLOCK_SIZE set to 10000 to align with common
+# practices (e.g., 0-9999, 10000-19999); sequential allocation without overflow
+# for simplicity (extend creators.txt for more blocks).
+# 2. URI Structure (Step 4): Ensures trailing slash for directory-style IRIs
+# (e.g., https://w3id.org/pmd/autoce/). FIX: Forces lowercase for paths/URIs.
+# 3. Import Terms (Step 8): Enforces specific terms files (e.g., pmd_terms.txt)
+# and creates placeholders. UPDATED: Supports custom naming like PMD-terms.txt,
+# but renames to ODK-expected {id}_terms.txt for SLME extraction.
+# 4. Import Modules (Step 4): Enforces 'slme' module extraction to prevent leaking
+# unwanted terms into your ontology.
+# 5. Ontology IRI (Step 11.5): Explicitly sets directory-style IRI using ROBOT annotate
+# to override ODK's default file-based IRI.
+# 6. README (Step 6.5): Post-seed sed to ensure title/description interpolation.
+# 7. README Custom (Step 6.7): Appends Development, Repository Structure, and Contribution sections
+# with ODK acknowledgment and PMD-specific guidance. FIX: Proper heredoc variable expansion
+# (unquoted << EOF for bash substitution; inline uppercase computation).
+# 8. ID Ranges in Config (Step 4): FIXED: Robust bash syntax for yq integration (variable scoping,
+# error handling, IFS=$'\t' for creators.txt to handle spaced names).
+# 9. General: Enhanced error handling (set -euo pipefail everywhere), trimmed outputs,
+# consistent indentation in Manchester OWL for parseability. Production-ready:
+# - Idempotent where possible (e.g., check files exist).
+# - Logs key actions for debugging.
+# - Preserves .github/ workflows.
+# - Triggers downstream for full pipeline.
+# ==============================================================================
+name: Setup New Ontology
+on:
+  workflow_dispatch:
+    inputs:
+      ontology_id:
+        description: 'Ontology ID (lowercase, e.g., autoce) - will be normalized to lowercase'
+        required: true
+      ontology_title:
+        description: 'Ontology Title (e.g., "Automotive Components Ontology")'
+        required: true
+      id_digits:
+        description: 'Number of digits in entity IDs (default: 7 for _0000001 to _9999999)'
+        required: true
+        default: '7'
+jobs:
+  setup_and_import:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Using ODK container to ensure all ontology tools (yq, robot, make, python) are available
+    container: obolibrary/odkfull:v1.6
+    steps:
+      # ========================================================================
+      # STEP 1: Checkout Repository
+      # ========================================================================
+      # Checks out the entire repo history for git operations.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # ========================================================================
+      # STEP 2: Configure Git
+      # ========================================================================
+      # Sets up git config for automated commits (bot user).
+      - name: Git Config
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # ========================================================================
+      # STEP 3: Install yq YAML Processor
+      # ========================================================================
+      # yq is used to manipulate project-odk.yaml; install latest binary.
+      - name: Install yq
+        run: |
+          wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          chmod +x /usr/bin/yq
+      # ========================================================================
+      # STEP 4: Configure URI Structure, ID Ranges, and Import Products
+      # ========================================================================
+      # Updates project-odk.yaml with inputs: metadata, URIs (lowercase paths), namespaces,
+      # components from components.txt, ID ranges from creators.txt, and imports from imports.txt.
+      # Always includes PMD Core as "pmd" import with SLME extraction.
+      - name: Configure URI Structure, ID Ranges, and Import Products
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --- Load Inputs and Normalize ---
+          CONFIG="project-odk.yaml"
+          ID="${{ github.event.inputs.ontology_id }}" # Raw input (may have CAPS)
+          LOWER_ID=$(echo "$ID" | tr '[:upper:]' '[:lower:]') # Force lowercase for URIs/files
+          TITLE="${{ github.event.inputs.ontology_title }}"
+          DIGITS="${{ github.event.inputs.id_digits }}"
+          if [ ! -f "$CONFIG" ]; then
+            echo "ERROR: $CONFIG not found!"
+            exit 1
+          fi
+          PREFIX=$(echo "$ID" | tr '[:lower:]' '[:upper:]') # Uppercase for entity prefixes (e.g., AUTOCE_)
+          echo "=== Configuring Ontology: $ID (normalized: $LOWER_ID, prefix: $PREFIX) ==="
+          # --------------------------------------------------------------------
+          # 1. BASIC METADATA (use LOWER_ID for file paths)
+          # --------------------------------------------------------------------
+          yq -i ".id = \"$LOWER_ID\"" "$CONFIG"
+          yq -i ".title = \"$TITLE\"" "$CONFIG"
+          yq -i ".edit_ontology_file = \"src/ontology/$LOWER_ID-edit.owl\"" "$CONFIG"
+          yq -i ".repo = \"$GITHUB_REPOSITORY\"" "$CONFIG" # Optional: for README templating
+          # --------------------------------------------------------------------
+          # 2. URI STRUCTURE (FIX: TRAILING SLASH + LOWERCASE PATHS)
+          # --------------------------------------------------------------------
+          # Defines https://w3id.org/pmd/{lower_id}/ (Directory style)
+          yq -i ".uribase = \"https://w3id.org/pmd\"" "$CONFIG"
+          yq -i ".uribase_suffix = \"$LOWER_ID/\"" "$CONFIG"
+          yq -i ".preferredPrefix = \"$PREFIX\"" "$CONFIG"
+          # --------------------------------------------------------------------
+          # 3. NAMESPACES (CRITICAL: For new entity ID generation, e.g., https://w3id.org/pmd/autoce/AUTOCE_0000001)
+          # --------------------------------------------------------------------
+          yq -i ".namespaces = [\"https://w3id.org/pmd/$LOWER_ID/\"]" "$CONFIG"
+          # --------------------------------------------------------------------
+          # 4. CI/CD & ARRAYS (Ensure empty arrays for safe appending)
+          # --------------------------------------------------------------------
+          yq -i ".ci = []" "$CONFIG"
+          yq -i '.components.products = (.components.products // [])' "$CONFIG"
+          yq -i '.import_group.products = (.import_group.products // [])' "$CONFIG"
+          yq -i '.idranges = (.idranges // [])' "$CONFIG"
+
+          # --------------------------------------------------------------------
+          # 5. COMPONENT PRODUCTS (Pass 1: Filenames Only)
+          # --------------------------------------------------------------------
+          # We add filenames ONLY. We add template config in Step 10 to avoid build errors during seed.
+          if [ -f "component_seeds.txt" ]; then
+            echo "Processing components from component_seeds.txt..."
+            grep -vE '^\s*#|^\s*$' component_seeds.txt | cut -d'|' -f1 | sort | uniq | while read -r comp_name; do
+              comp_name=$(echo "$comp_name" | xargs)
+              if [ -n "$comp_name" ]; then
+                # Only add filename for now
+                yq -i ".components.products += [{\"filename\": \"${comp_name}.owl\"}]" "$CONFIG"
+                echo " Registered component: $comp_name.owl"
+              fi
+            done
+          fi
+
+          # --------------------------------------------------------------------
+          # 6. ID RANGES CONFIGURATION (from creators.txt: one creator per line; allocates 10k blocks)
+          # FIXED: IFS=$'\t' for nl output; handles spaced names via full line processing.
+          # --------------------------------------------------------------------
+          if [ -f "creators.txt" ]; then
+            echo "Processing ID ranges from creators.txt..."
+            ID_PREFIX="https://w3id.org/pmd/$LOWER_ID/${PREFIX}_" # e.g., https://w3id.org/pmd/autoce/AUTOCE_
+            BLOCK_SIZE=10000
+            nl -ba creators.txt | while IFS=$'\t' read -r idx line || [ -n "$idx" ]; do
+              idx=$(echo "$idx" | xargs) # Trim any padding spaces from nl
+              clean_line=$(echo "$line" | sed 's/^\s*#.*$//' | xargs) # Remove comments, trim/collapse spaces
+              if [ -z "$clean_line" ]; then continue; fi
+              creator="$clean_line"
+              RANGE_START=$(( (idx - 1) * BLOCK_SIZE ))
+              RANGE_END=$(( RANGE_START + BLOCK_SIZE - 1 ))
+              export ALLOCATED_TO="$creator"
+              export IDS_FOR="$LOWER_ID"
+              export ID_PREFIX_VAR="$ID_PREFIX"
+              export ID_DIGITS_VAR="$DIGITS"
+              export R_START="$RANGE_START"
+              export R_END="$RANGE_END"
+              yq -i '.idranges += [{
+                "allocatedto": env(ALLOCATED_TO),
+                "idsfor": env(IDS_FOR),
+                "idprefix": env(ID_PREFIX_VAR),
+                "iddigits": env(ID_DIGITS_VAR),
+                "range_start": env(R_START),
+                "range_end": env(R_END)
+              }]' "$CONFIG"
+              echo " Allocated range $RANGE_START-$RANGE_END to: $creator"
+            done
+          else
+            echo "No creators.txt found - no ID ranges added."
+          fi
+          # --------------------------------------------------------------------
+          # 7. IMPORT PRODUCTS (from imports.txt: id|url format; always add PMD Core)
+          # --------------------------------------------------------------------
+          echo "Configuring import products..."
+          # Always add PMD Core (id: "pmdco" for simpler terms file handling)
+          yq -i '.import_group.products += [{
+            "id": "pmdco",
+            "title": "PMD Core Ontology",
+            "mirror_from": "https://raw.githubusercontent.com/materialdigital/core-ontology/refs/heads/main/pmdco-full.owl",
+            "module_type": "slme",
+            "base_iris": ["https://w3id.org/pmd/co/"]
+          }]' "$CONFIG"
+          echo " Added core import: pmd (SLME extraction)"
+          # Add additional imports from imports.txt (SLME enforced)
+          if [ -f "imports.txt" ]; then
+            while IFS='|' read -r import_id import_url || [ -n "$import_id" ]; do
+              if echo "$import_id" | grep -qE '^\s*#'; then continue; fi
+             
+              import_id=$(echo "${import_id:-}" | xargs | tr '[:upper:]' '[:lower:]') # Normalize import_id to lowercase
+              import_url=$(echo "${import_url:-}" | xargs)
+              if [ -z "$import_id" ] || [ -z "$import_url" ]; then continue; fi
+              echo " - Adding import: $import_id from $import_url"
+             
+              export IMPORT_ID="$import_id"
+              export IMPORT_URL="$import_url"
+              yq -i '.import_group.products += [{
+                "id": env(IMPORT_ID),
+                "mirror_from": env(IMPORT_URL),
+                "module_type": "slme"
+              }]' "$CONFIG"
+            done < imports.txt
+          else
+            echo "No imports.txt found - only PMD Core added."
+          fi
+          echo "=== Configuration Complete (URIs use $LOWER_ID) ==="
+      # ========================================================================
+      # STEP 5: Run ODK Seed
+      # ========================================================================
+      # Generates initial ODK structure (src/, .github/, etc.) based on updated project-odk.yaml.
+      - name: Run ODK Seed
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running ODK seed..."
+          /tools/odk.py seed -c -C project-odk.yaml \
+            --gitname "${{ github.actor }}" \
+            --gitemail "${{ github.actor }}@users.noreply.github.com"
+      # ========================================================================
+      # STEP 6: Move Generated Files
+      # ========================================================================
+      # Moves ODK-generated files from target/{id}/ to root; cleans up conflicts.
+      - name: Move Generated Files
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="${{ github.event.inputs.ontology_id }}"
+          LOWER_ID=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
+          TARGET_DIR="target/$LOWER_ID" # ODK uses lowercase from config
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "ERROR: Target directory $TARGET_DIR not found!"
+            exit 1
+          fi
+          # Cleanup ODK github artifacts to avoid conflict with existing
+          rm -rf "$TARGET_DIR/.github"
+         
+          # Move files to root
+          cp -r "$TARGET_DIR"/* .
+          if [ -f "$TARGET_DIR/.gitignore" ]; then cp "$TARGET_DIR/.gitignore" .; fi
+         
+          # Cleanup target
+          rm -rf target/
+          echo "Files moved from $TARGET_DIR to root."
+      # ========================================================================
+      # STEP 6.5: Ensure README Interpolation (Title/Description)
+      # ========================================================================
+      # Basic sed replacements for ODK-generated README placeholders.
+      - name: Ensure README Interpolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOWER_ID=$(echo "${{ github.event.inputs.ontology_id }}" | tr '[:upper:]' '[:lower:]')
+          TITLE="${{ github.event.inputs.ontology_title }}"
+          if [ -f "README.md" ]; then
+            sed -i "s|Placeholder Title|$TITLE|g" README.md
+            sed -i "s|placeholder_id|$LOWER_ID|g" README.md
+            echo "README interpolated: Title='$TITLE', ID='$LOWER_ID'"
+          else
+            echo "WARNING: README.md not found - skipping interpolation."
+          fi
+      # ========================================================================
+      # STEP 6.7: Customize README (Development, Structure, Contribution)
+      # ========================================================================
+      # Appends PMD/ODK-specific sections to README.md for user guidance.
+      # FIX: Uses unquoted heredoc (<< EOF) for bash variable expansion; computes uppercase inline.
+      - name: Customize README
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOWER_ID=$(echo "${{ github.event.inputs.ontology_id }}" | tr '[:upper:]' '[:lower:]')
+          UPPER_ID=$(echo "${{ github.event.inputs.ontology_id }}" | tr '[:lower:]' '[:upper:]')
+          TITLE="${{ github.event.inputs.ontology_title }}"
+          REPO="${{ github.repository }}"
+          if [ ! -f "README.md" ]; then
+            echo "ERROR: README.md not found!"
+            exit 1
+          fi
+          # Ensure newline before appending
+          echo "" >> README.md
+          # Append Development section (with inline uppercase for example)
+          cat >> README.md << EOF
+          ## Development
+          This ontology is developed using OWL and managed with the [Ontology Development Kit (ODK)](https://github.com/INCATools/ontology-development-kit). To edit:
+          - Open \`${LOWER_ID}-edit.owl\` (located in \`src/ontology/\`) in [Protégé](https://protege.stanford.edu/) or your preferred OWL editor.
+          - Create new entities (classes, properties) within the namespace \`https://w3id.org/pmd/${LOWER_ID}/\`.
+            - Example class ID: \`https://w3id.org/pmd/${LOWER_ID}/${UPPER_ID}_0000001\` (PREFIX is uppercase).
+          - Use the \`Makefile\` for automation:
+            - \`make test\`: Run quality control (OWL reasoner checks, syntax validation).
+            - \`make refresh-imports\`: Update imported ontologies (e.g., PMD Core, LOGO) with SLME extraction.
+            - \`make release\`: Build release artifacts (full, base, etc.) in TTL/OWL/JSON formats.
+            - \`make update_repo\`: Sync changes to the repo structure.
+          Quick start: After setup, edit in Protégé, commit, and push to trigger CI builds.
+          EOF
+          # Append Repository Structure section
+          cat >> README.md << EOF
+          ## Repository Structure
+          This repository provides the modular implementation of ${TITLE}, developed and maintained using the [Ontology Development Kit (ODK)](https://github.com/INCATools/ontology-development-kit).
+          ### Top-level directories
+          * **.github/:** GitHub configuration files, including CI workflows and templates.
+          * **docs/:** Documentation sources for the ontology website and user guides (optional; add as needed).
+          * **patterns/:** Logical patterns and SHACL shapes used to maintain consistent ontology design (optional).
+          * **src/:** Main development folder generated and managed through ODK.
+            * **ontology/components/:** – Modular ontology components (classes, properties, axioms).
+            * **ontology/${LOWER_ID}-edit.owl:** – Primary editable ontology file used during development (ontology editors' version).
+            * **ontology/imports/:** Extracted terms from imported ontologies (via SLME).
+          ### Ontology versions (generated on release)
+          * **${LOWER_ID}-full.owl/ttl:** Complete ontology with all imports and full axiomatization.
+          * **${LOWER_ID}-base.owl/ttl:** Core entities without extended imports.
+          * **${LOWER_ID}-simple.owl/ttl:** Simplified version with basic subclass and existential axioms.
+          * **${LOWER_ID}-minimal.owl/ttl:** Lightweight minimal version for quick onboarding (recommended for beginners).
+          * **${LOWER_ID}.owl/ttl:** Main ontology file contains the full version.
+          ### Other files
+          * README.md, LICENSE.txt, CONTRIBUTING.md – Project overview, license, and contribution guidelines.
+          * imports.txt, components.txt, creators.txt – Configuration for setup (optional edits).
+          EOF
+          # Append Contribution section (PMD-specific)
+          cat >> README.md << EOF
+          ## Contribution
+          We welcome contributions to the ${TITLE} ontology!
+          To get involved:
+          - Please use this GitHub repository's **[Issue tracker](https://github.com/${REPO}/issues)** to request new terms/classes or report errors or specific concerns related to the ontology.
+          - For creation of application ontologies using PMD core ontologies, we advise using the **[application-ontology-template](https://github.com/materialdigital/application-ontology-template/)**. It applies the same framework used here and mirrors the pmdco with all its modules.
+          - Write about your specific modeling concerns or any other discussable topics in the **[discussion forum](https://github.com/${REPO}/discussions)**.
+          - Participate in our **PMD Playground Meetings**: Our Ontology Playground, organized online every second Friday from 1-2 pm (CET), is a great opportunity to connect with developers and our proactive community to shape the PMDco. Please register via our [mailing list](https://www.lists.kit.edu/sympa/subscribe/ontology-playground?previous_action=info).
+          - If you need further information, please feel free to contact us via **[info@material-digital.de](mailto:info@material-digital.de)**
+          EOF
+          echo "README customized with Development, Structure, and Contribution sections (using $LOWER_ID)."
+      # ========================================================================
+      # STEP 7: Generate ID Ranges OWL File (FIX: VALID MANCHESTER SYNTAX)
+      # ========================================================================
+      # Creates {lower_id}-idranges.owl in Manchester syntax for ID allocation (used by dicer-cli).
+      # Allocates blocks from creators.txt; declares annotation properties and datatypes.
+      # FIX: Ensured variable scoping in subshells; robust error handling. Proper indentation,
+      # added full prefixes, annotations format (indents/commas), line reading (IFS=$'\t' for spaces).
+      # BLOCK_SIZE=10000 for 10k blocks (e.g., 0-9999); sequential.
+      - name: Generate ID Ranges OWL File
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="${{ github.event.inputs.ontology_id }}"
+          LOWER_ID=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
+          DIGITS="${{ github.event.inputs.id_digits }}"
+          PREFIX_UPPER=$(echo "$ID" | tr '[:lower:]' '[:upper:]')
+          ID_PREFIX="https://w3id.org/pmd/$LOWER_ID/${PREFIX_UPPER}_"
+          IDRANGE_FILE="src/ontology/${LOWER_ID}-idranges.owl"
+          CREATORS_FILE="creators.txt"
+          if [ ! -f "$CREATORS_FILE" ]; then
+             echo "No creators.txt found - skipping ID ranges generation."
+             exit 0
+          fi
+          mkdir -p "src/ontology"
+          # -------------------------------------------------------
+          # HEADER WITH PREFIXES AND ANNOTATION PROPERTIES (Manchester Syntax)
+          # -------------------------------------------------------
+          {
+            echo "Prefix: rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>"
+            echo "Prefix: xsd: <http://www.w3.org/2001/XMLSchema#>"
+            echo "Prefix: owl: <http://www.w3.org/2002/07/owl#>"
+            echo "Prefix: rdfs: <http://www.w3.org/2000/01/rdf-schema#>"
+            echo "Prefix: xml: <http://www.w3.org/XML/1998/namespace>"
+            echo "Prefix: dce: <http://purl.org/dc/elements/1.1/>"
+            # Define Prefixes for ID Range Annotations
+            echo "Prefix: allocatedto: <http://purl.obolibrary.org/obo/IAO_0000597>"
+            echo "Prefix: idsfor: <http://purl.obolibrary.org/obo/IAO_0000598>"
+            echo "Prefix: idprefix: <http://purl.obolibrary.org/obo/IAO_0000599>"
+            echo "Prefix: iddigits: <http://purl.obolibrary.org/obo/IAO_0000596>"
+            echo "Prefix: idrange: <http://purl.obolibrary.org/obo/ro/idrange/>"
+           
+            echo ""
+            echo "Ontology: <https://w3id.org/pmd/$LOWER_ID/${LOWER_ID}-idranges.owl>"
+            echo ""
+           
+            # Ontology Annotations (using prefixes for dicer-cli safety; indented, commas on non-last)
+            echo "Annotations:"
+            echo "    idsfor: \"$PREFIX_UPPER\","
+            echo "    idprefix: \"$ID_PREFIX\","
+            echo "    iddigits: $DIGITS"
+            echo ""
+           
+            # Declare Annotation Properties (required for Manchester)
+            echo "AnnotationProperty: allocatedto:"
+            echo ""
+            echo "AnnotationProperty: idsfor:"
+            echo ""
+            echo "AnnotationProperty: idprefix:"
+            echo ""
+            echo "AnnotationProperty: iddigits:"
+            echo ""
+          } > "$IDRANGE_FILE"
+          # -------------------------------------------------------
+          # WRITE RANGES (One Datatype per Creator/Block)
+          # -------------------------------------------------------
+          BLOCK_SIZE=10000
+          nl -ba "$CREATORS_FILE" | while IFS=$'\t' read -r idx line || [ -n "$idx" ]; do
+            idx=$(echo "$idx" | xargs) # Trim nl padding
+            clean_line=$(echo "$line" | sed 's/^\s*#.*$//' | xargs) # Remove comments, trim/collapse
+            if [ -z "$clean_line" ]; then continue; fi
+           
+            RANGE_START=$(( (idx - 1) * BLOCK_SIZE ))
+            RANGE_END=$(( RANGE_START + BLOCK_SIZE - 1 ))
+            {
+              echo "Datatype: idrange:$idx"
+              echo "    Annotations:"
+              echo "        allocatedto: \"$clean_line\""
+              echo "    "
+              echo "    EquivalentTo:"
+              echo "        xsd:integer[>= $RANGE_START , <= $RANGE_END]"
+              echo "    "
+            } >> "$IDRANGE_FILE"
+            echo " Added range $RANGE_START-$RANGE_END for: $clean_line"
+          done
+          # Required Base Datatypes (no indent)
+          {
+            echo "Datatype: xsd:integer"
+            echo "Datatype: rdf:PlainLiteral"
+          } >> "$IDRANGE_FILE"
+          echo "ID Ranges file generated: $IDRANGE_FILE"
+      # ========================================================================
+      # STEP 8: Setup Import Terms Files (FIX: SPECIFIC FILES + CUSTOM NAMING SUPPORT)
+      # ========================================================================
+      # Creates/copies terms files in src/ontology/imports/ for SLME extraction.
+      # Supports custom names (e.g., PMD-terms.txt) or standard (pmd_terms.txt); falls back to empty placeholder.
+      - name: Setup Import Terms Files
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMPORTS_DIR="src/ontology/imports"
+          mkdir -p "$IMPORTS_DIR"
+          # Function: Process terms for one import (custom → standard → placeholder)
+          process_terms_file() {
+            local onto_id=$1 # e.g., "pmd" (lowercase)
+            local custom_source="${onto_id^^}-terms.txt" # e.g., PMD-terms.txt
+            local standard_source="${onto_id}_terms.txt" # e.g., pmd_terms.txt
+            local target_file="$IMPORTS_DIR/${onto_id}_terms.txt" # ODK-expected for SLME
+            # Prioritize custom, then standard
+            local source_file=""
+            if [ -f "$custom_source" ]; then
+              echo " - Found custom terms file: $custom_source"
+              source_file="$custom_source"
+            elif [ -f "$standard_source" ]; then
+              echo " - Found standard terms file: $standard_source"
+              source_file="$standard_source"
+            else
+              echo " - No terms file for $onto_id. Creating empty placeholder."
+              {
+                echo "# Terms to import from $onto_id ontology (SLME extraction)"
+                echo "# Format: One IRI per line (e.g., https://w3id.org/pmd/co/PMDCO_0000001)"
+                echo "# Leave empty to import nothing beyond references."
+              } > "$target_file"
+              return
+            fi
+            # Copy to ODK-expected target
+            cp "$source_file" "$target_file"
+            echo " - Prepared ODK terms: $target_file"
+          }
+          # 1. Process PMD Core (id: "pmd")
+          echo "Processing PMD Core terms..."
+          process_terms_file "pmdco"
+          # 2. Process Additional Imports (from imports.txt, normalized lowercase)
+          if [ -f "imports.txt" ]; then
+            while IFS='|' read -r import_id import_url || [ -n "$import_id" ]; do
+              if echo "$import_id" | grep -qE '^\s*#'; then continue; fi
+              import_id=$(echo "${import_id:-}" | xargs | tr '[:upper:]' '[:lower:]')
+              if [ -n "$import_id" ]; then
+                echo "Processing terms for $import_id..."
+                process_terms_file "$import_id"
+              fi
+            done < imports.txt
+          fi
+          echo "Terms files setup complete in $IMPORTS_DIR."
+      # ========================================================================
+      # STEP 9: Refresh Imports
+      # ========================================================================
+      # Runs ODK's make refresh-imports to mirror and extract imports (SLME via terms files).
+      - name: Refresh Imports
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Refreshing imports with SLME extraction..."
+          cd src/ontology
+          make refresh-imports IMP=true MIR=true ROBOT_ENV='ROBOT_JAVA_ARGS=-Xmx8G'
+          echo "Imports refreshed successfully."
+      # ========================================================================
+      # STEP 10: Initialize Component Templates and Reconfigure ODK
+      # ========================================================================
+      # 1. Creates TSV templates from component_seeds.txt
+      # 2. Updates the ODK config to enable "use_template: true"
+      # 3. Regenerates the Makefile so it now knows how to build them
+      - name: Initialize Component Templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="${{ github.event.inputs.ontology_id }}"
+          LOWER_ID=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
+          
+          # Path to the internal ODK config file generated by Seed
+          INTERNAL_CONFIG="src/ontology/${LOWER_ID}-odk.yaml"
+          
+          # 1. Setup Directories
+          mkdir -p src/templates
+          mkdir -p src/ontology/config
+          
+          # 2. Create config/context.json
+          if [ ! -f "src/ontology/config/context.json" ]; then
+            echo "{
+              \"@context\": {
+                \"$LOWER_ID\": \"https://w3id.org/pmd/$LOWER_ID/\",
+                \"pmdco\": \"https://w3id.org/pmd/co/\",
+                \"rdf\": \"http://www.w3.org/1999/02/22-rdf-syntax-ns#\",
+                \"rdfs\": \"http://www.w3.org/2000/01/rdf-schema#\",
+                \"owl\": \"http://www.w3.org/2002/07/owl#\"
+              }
+            }" > src/ontology/config/context.json
+          fi
+          
+          # 3. Process Seeds into TSV and Update Config
+          if [ -f "component_seeds.txt" ]; then
+            echo "Generating templates and updating configuration..."
+            
+            # Identify unique components
+            grep -vE '^\s*#|^\s*$' component_seeds.txt | cut -d'|' -f1 | sort | uniq | while read -r comp_name; do
+              comp=$(echo "$comp_name" | xargs)
+              if [ -z "$comp" ]; then continue; fi
+              
+              # A. Generate TSV File
+              TSV_FILE="src/templates/${comp}.tsv"
+              if [ ! -f "$TSV_FILE" ]; then
+                echo -e "ID\tLabel\tParent Class" > "$TSV_FILE"
+                echo -e "ID\tA rdfs:label\tSC %" >> "$TSV_FILE"
+                
+                # Grep for this component's specific rows
+                grep "^$comp" component_seeds.txt | while IFS='|' read -r _ id label parent || [ -n "$id" ]; do
+                   echo -e "$(echo $id|xargs)\t$(echo $label|xargs)\t$(echo $parent|xargs)" >> "$TSV_FILE"
+                done
+                echo " Created template: $TSV_FILE"
+              fi
+
+              # B. Update ODK Config to enable templates
+              # We find the component by filename and inject the template settings
+              export FILENAME="${comp}.owl"
+              export TEMPLATE_FILE="${comp}.tsv"
+              
+              yq -i '(.components.products[] | select(.filename == env(FILENAME))) += {
+                "use_template": true,
+                "template_options": "--add-prefixes config/context.json",
+                "templates": [env(TEMPLATE_FILE)]
+              }' "$INTERNAL_CONFIG"
+              
+              echo " Enabled templates for $comp in $INTERNAL_CONFIG"
+            done
+            
+            # 4. Regenerate Makefile
+            echo "Regenerating repository structure to apply template settings..."
+            cd src/ontology
+            make update_repo
+            echo "Makefile updated."
+            
+          else
+            echo "No component_seeds.txt found."
+          fi
+      # ========================================================================
+      # STEP 11: Remove Root Class
+      # ========================================================================
+      # Removes ODK-generated root class (e.g., {PREFIX}_0000000) from edit.owl.
+      - name: Remove Root Class
+        shell: bash
+        run: |
+          set -euo pipefail
+          ID="${{ github.event.inputs.ontology_id }}"
+          LOWER_ID=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
+          PREFIX=$(echo "$ID" | tr '[:lower:]' '[:upper:]')
+          EDIT_FILE="src/ontology/${LOWER_ID}-edit.owl"
+          if [ -f "$EDIT_FILE" ]; then
+            sed -i "/${PREFIX}_0000000/d" "$EDIT_FILE"
+            sed -i '/root node/d' "$EDIT_FILE"
+            echo "Removed root class from $EDIT_FILE."
+          else
+            echo "WARNING: $EDIT_FILE not found - skipping root class removal."
+          fi
+      # ========================================================================
+      # STEP 11.5: Set Ontology IRI to Directory Style
+      # ========================================================================
+      # Uses ROBOT annotate to enforce directory-style IRI (e.g., https://w3id.org/pmd/autoce/)
+      # in the edit.owl (overrides ODK defaults).
+      - name: Set Ontology IRI to Directory Style
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOWER_ID=$(echo "${{ github.event.inputs.ontology_id }}" | tr '[:upper:]' '[:lower:]')
+          EDIT_FILE="src/ontology/${LOWER_ID}-edit.owl"
+          ONT_IRI="https://w3id.org/pmd/${LOWER_ID}/"
+          if [ -f "$EDIT_FILE" ]; then
+            robot annotate --input "$EDIT_FILE" \
+              --ontology-iri "$ONT_IRI" \
+              -o "$EDIT_FILE"
+            echo "Ontology IRI set to directory-style: $ONT_IRI"
+          else
+            echo "WARNING: $EDIT_FILE not found - skipping IRI annotation."
+          fi
+      # ========================================================================
+      # STEP 12: Run QC and Update Repo
+      # ========================================================================
+      # Runs ODK's make test (reasoning, validation) and update_repo (syncs structure).
+      - name: Run QC and Update Repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running QC tests and repo update..."
+          cd src/ontology
+          make test ROBOT_ENV='ROBOT_JAVA_ARGS=-Xmx8G'
+          make update_repo
+          echo "QC passed; repo updated."
+      # ========================================================================
+      # STEP 13: Commit and Push Changes
+      # ========================================================================
+      # Stages all changes, commits with descriptive message, pushes to main.
+      - name: Commit and Push Changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOWER_ID=$(echo "${{ github.event.inputs.ontology_id }}" | tr '[:upper:]' '[:lower:]')
+          git add .
+          git reset .github 2>/dev/null || true # Preserve custom workflows
+          git commit -m "chore: Setup ${LOWER_ID^^} ontology (end-to-end complete)
+          Auto-generated via Setup New Ontology workflow:
+          - Configured project-odk.yaml (URIs: https://w3id.org/pmd/${LOWER_ID}/)
+          - Initialized components, imports (SLME), ID ranges
+          - Generated ${LOWER_ID}-edit.owl and ${LOWER_ID}-idranges.owl
+          - Customized README.md with development guides" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref_name }}
+          echo "Changes committed and pushed."
+      # ========================================================================
+      # STEP 14: Trigger Workflow Chain
+      # ========================================================================
+      # Dispatches downstream workflows (e.g., refresh-imports) for full pipeline.
+      - name: Trigger Refresh Imports Workflow
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: trigger-refresh-imports

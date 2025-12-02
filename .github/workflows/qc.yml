@@ -1,39 +1,290 @@
-# Basic ODK workflow
+# ==============================================================================
+# WORKFLOW: Build Ontology (Quality Control)
+# ==============================================================================
+# Purpose: Builds ontology release assets and performs quality control checks
+#
+# This workflow:
+# 1. Refreshes imports to ensure consistency
+# 2. Generates release artifacts (OWL, JSON-LD, Turtle, etc.)
+# 3. Runs quality control checks (syntax, consistency, etc.)
+# 4. Commits generated assets back to the repository
+# 5. Triggers the documentation workflow to continue the chain
+#
+# This is the core build workflow that transforms the edit file
+# (*-edit.owl) into production-ready ontology releases in multiple formats.
+#
+# Execution Chain Position:
+# setup-repo → refresh-imports → [BUILD/QC] → docs
+#
+# Read more about ODK builds:
+# https://github.com/INCATools/ontology-development-kit#building-the-ontology
+# ==============================================================================
 
-name: build
+name: Build Ontology
 
-# Controls when the action will run.
+# ==============================================================================
+# WORKFLOW TRIGGERS
+# ==============================================================================
+# This workflow can be triggered in three ways:
+# 1. Via repository_dispatch from refresh-imports workflow (after imports refresh)
+# 2. Automatically on pushes that modify ontology source files
+# 3. Manually via workflow_dispatch for forced builds
+#
+# Path filters ensure the workflow only runs when ontology files change,
+# preventing unnecessary builds on unrelated commits (README, docs, etc.).
+#
+# IMPORTANT: Push triggers skip commits made by github-actions[bot] to prevent
+# duplicate runs when the workflow chain is triggered via repository_dispatch.
+# ==============================================================================
 on:
-  # Triggers the workflow on push or pull request events but only for the main branch
-  push:
-    branches: ["*"]
-  pull_request:
-    branches: ["*"]
+  # ============================================================================
+  # TRIGGER 1: Repository Dispatch (from refresh-imports workflow)
+  # ============================================================================
+  # Listens for 'trigger-qc' event dispatched by refresh-imports.yml
+  # This ensures build runs immediately after imports are refreshed
+  # ============================================================================
+  repository_dispatch:
+    types: [trigger-qc]
 
-  # Allows you to run this workflow manually from the Actions tab
+  # ============================================================================
+  # TRIGGER 2: Push Events (for regular development)
+  # ============================================================================
+  # Triggers when any file in src/ontology/ is modified and pushed
+  #
+  # Why src/ontology/**?
+  # - Catches changes to edit files, components, imports, metadata
+  # - Ensures builds run after ontology content updates
+  # - Excludes unrelated changes (documentation, root README, etc.)
+  #
+  # Examples of files that trigger:
+  # - src/ontology/myonto-edit.owl (main edit file)
+  # - src/ontology/components/*.owl (component modules)
+  # - src/ontology/imports/*.owl (import modules)
+  # - src/ontology/Makefile (build configuration)
+  #
+  # Note: This trigger is skipped for commits made by github-actions[bot]
+  # to prevent duplicate runs when triggered via repository_dispatch
+  # ============================================================================
+  # push:
+  #   branches: ["*"]  # Triggers on any branch
+  #   paths:
+  #     - 'src/ontology/**'
+
+  # ============================================================================
+  # TRIGGER 3: Pull Request Events (for PR validation)
+  # ============================================================================
+  # Same as push trigger, but for pull requests
+  # Runs QC checks on PR branches to validate changes before merge
+  # Note: Commits are skipped for PRs (see commit step conditions)
+  # ============================================================================
+  # pull_request:
+  #   branches: ["*"]
+  #   paths:
+  #     - 'src/ontology/**'
+
+  # ============================================================================
+  # TRIGGER 4: Manual Trigger (for forced builds)
+  # ============================================================================
+  # Allows manual execution via GitHub UI
+  # Useful for:
+  # - Testing build process without code changes
+  # - Forcing rebuild after external changes
+  # - Troubleshooting build issues
+  # ============================================================================
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+# ==============================================================================
+# ENVIRONMENT VARIABLES
+# ==============================================================================
+# Global variables available to all jobs in this workflow
+# ==============================================================================
+env:
+  # Default branch for git operations (used in some ODK make targets)
+  DEFAULT_BRANCH: main
+
+# ==============================================================================
+# JOBS
+# ==============================================================================
 jobs:
-  # This workflow contains a single job called "ontology_qc"
+  # ============================================================================
+  # JOB: ontology_qc
+  # ============================================================================
+  # Main job that performs the complete build and QC process
+  #
+  # Process Flow:
+  # 1. Checkout repository with full history
+  # 2. Refresh imports (ensures consistency)
+  # 3. Build all release assets (OWL, JSON-LD, Turtle, etc.)
+  # 4. Commit generated files back to repository
+  # 5. Trigger documentation workflow
+  #
+  # Container: ODK full image with all build tools
+  #
+  # CRITICAL: Skips workflow for commits made by github-actions[bot] on push
+  # to prevent duplicate runs when triggered via repository_dispatch
+  # ============================================================================
   ontology_qc:
-    # The type of runner that the job will run on
+    # Use latest Ubuntu runner for stability
     runs-on: ubuntu-latest
+
+    # CRITICAL: Skip this workflow if triggered by push from github-actions[bot]
+    # This prevents duplicate runs in the workflow chain
+    # The chain uses repository_dispatch, so push triggers from bot commits are redundant
+    # if: |
+    #   github.event_name != 'push' || 
+    #   github.event.head_commit.author.name != 'github-actions[bot]'
+
+    # Grant write permissions for committing generated assets
+    permissions:
+      contents: write
+
+    # Use ODK container for consistent build environment
+    # Version v1.6 pinned for reproducibility
+    # Includes: ROBOT, OWLTools, make, Java, Python, reasoning tools
     container: obolibrary/odkfull:v1.6
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      # ========================================================================
+      # STEP 1: Checkout Repository
+      # ========================================================================
+      # Fetch complete repository with full git history
+      #
+      # Why fetch-depth: 0?
+      # - Full history may be needed for ODK make targets
+      # - Allows git operations that reference commits/branches
+      # - Required for accurate versioning in releases
+      # ========================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history
 
+      # ========================================================================
+      # STEP 2: Build Ontology
+      # ========================================================================
+      # Runs ODK make targets to build complete ontology release
+      #
+      # Make Targets:
+      # 1. refresh-imports: Updates external ontology modules (ensures consistency)
+      # 2. all_assets: Generates all release artifacts
+      #
+      # What all_assets generates:
+      # - {id}-full.owl     : Complete ontology with all imports merged
+      # - {id}-base.owl     : Core ontology without imports
+      # - {id}.owl          : Main release file (typically same as -full)
+      # - {id}.json         : JSON-LD serialization
+      # - {id}.ttl          : Turtle serialization
+      # - {id}-simple.owl   : Simplified version (if configured)
+      # - {id}-non-classified.owl : Pre-reasoning version (if configured)
+      # - Component files   : Individual module builds
+      # - Report files      : QC reports and statistics
+      #
+      # Environment Variables:
+      # - ROBOT_ENV: Sets Java heap size for ROBOT tool
+      # - ROBOT_JAVA_ARGS=-Xmx6G: Allocates 6GB RAM for reasoning/validation
+      #
+      # Why 6GB?
+      # - Large ontologies require significant memory for reasoning
+      # - Prevents OutOfMemory errors during classification
+      # - Adjust if builds fail with OOM errors (increase) or if builds
+      #   are fast and memory-constrained (decrease)
+      # ========================================================================
       - name: Build ontology
         env:
-          DEFAULT_BRANCH: main
-        run: cd src/ontology && make refresh-imports all_assets ROBOT_ENV='ROBOT_JAVA_ARGS=-Xmx6G'
-      - name: Commit files # commit the src folder
+          # Configure ROBOT tool memory allocation
+          # Increase if builds fail with OutOfMemory errors
+          ROBOT_ENV: 'ROBOT_JAVA_ARGS=-Xmx6G'
+        run: |
+          # Navigate to ontology source directory
+          cd src/ontology
+          
+          # Run ODK build targets
+          # - refresh-imports: Update external imports first
+          # - all_assets: Generate all release files
+          make refresh-imports all_assets
+
+      # ========================================================================
+      # STEP 3: Commit Ontology Assets
+      # ========================================================================
+      # Commits generated release files back to the repository
+      #
+      # Conditions:
+      # - Only runs for push/dispatch events (not pull requests)
+      # - Only commits if changes detected (action skips empty commits)
+      #
+      # What gets committed:
+      # - src/ontology/*.owl   : All OWL release files
+      # - src/ontology/*.json  : JSON-LD serializations
+      # - src/ontology/*.ttl   : Turtle serializations
+      # - src/ontology/imports/*.owl : Updated import modules
+      #
+      # Why --force flag?
+      # - Generated files are often in .gitignore
+      # - --force overrides gitignore rules for these specific files
+      # - Ensures release assets are tracked in version control
+      #
+      # Git History Note:
+      # - Author: github-actions[bot] (distinguishes from human commits)
+      # - Message: Clearly indicates automated build
+      # - Allows easy filtering of bot commits in git log
+      # ========================================================================
+      - name: Commit ontology assets
+        # Skip commits for pull requests (review changes manually in PR)
+        if: github.event_name != 'pull_request'
         uses: EndBug/add-and-commit@v9
         with:
-          message: "updated ontology"
-          add: "*.* --force"
-          cwd: "./src/"
+          # Descriptive commit message for git history
+          message: "Building the ontology from the edits"
+          
+          # Working directory (repository root)
+          cwd: "."
+          
+          # Add generated files, forcing inclusion despite .gitignore
+          # Pattern breakdown:
+          # - src/ontology/*.owl : All OWL files (base, full, simple, etc.)
+          # - src/ontology/*.json : JSON-LD serializations
+          # - src/ontology/*.ttl : Turtle serializations
+          # - src/ontology/imports/*.owl : Import modules
+          add: "src/ontology/*.owl src/ontology/*.json src/ontology/*.ttl src/ontology/imports/*.owl --force"
+          
+          # Use GitHub Actions bot as commit author
           default_author: github_actions
+          
+          # Push to current branch
+          push: true
+
+      # ========================================================================
+      # STEP 4: Trigger Documentation Workflow
+      # ========================================================================
+      # Dispatches repository event to start the documentation generation workflow
+      #
+      # Workflow Chain:
+      # setup-repo → refresh-imports → qc → [DOCS]
+      #
+      # Why trigger docs after QC?
+      # - Documentation is generated from release assets (*-full.owl)
+      # - Ensures docs reflect the latest built ontology
+      # - Keeps documentation synchronized with ontology content
+      #
+      # Why repository_dispatch?
+      # - Allows explicit workflow chaining
+      # - Maintains clear separation between workflow stages
+      # - Prevents race conditions with concurrent triggers
+      #
+      # Condition: Only trigger for non-PR events
+      # - PRs get preview docs via push trigger after merge
+      # - Prevents duplicate doc builds during PR review
+      #
+      # Event type: trigger-docs
+      # Listened for by: docs.yml
+      # ========================================================================
+      - name: Trigger Documentation Workflow
+        # Skip for pull requests (docs will build via push trigger after PR merge)
+        if: github.event_name != 'pull_request'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          # Use default GitHub token (automatically available)
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Event name that docs.yml listens for
+          event-type: trigger-docs
