@@ -1,0 +1,350 @@
+# ==============================================================================
+# WORKFLOW: Update Repo Config
+# ==============================================================================
+# Purpose: Synchronizes repository structure with ODK configuration changes
+#
+# This workflow:
+# 1. Detects changes to the ontology ODK configuration file (*-odk.yaml)
+# 2. Runs ODK update_repo make target to synchronize repository structure
+# 3. Commits updated configuration files back to the repository
+#
+# What update_repo does:
+# - Updates owlnet configuration files
+# - Synchronizes SPARQL query templates
+# - Updates release artifact configurations
+# - Regenerates Makefile components (if needed)
+# - Updates documentation templates
+#
+# This workflow is INDEPENDENT of the main workflow chain and runs whenever
+# configuration files are modified. It does not trigger other workflows.
+#
+# Workflow Position: Independent (does not chain with others)
+#
+# Read more about ODK update_repo:
+# https://github.com/INCATools/ontology-development-kit#update_repo
+# ==============================================================================
+
+name: Update Repo Config
+
+# ==============================================================================
+# WORKFLOW TRIGGERS
+# ==============================================================================
+# This workflow triggers when ODK configuration files are modified.
+# It is independent of the main workflow chain (setup-repo → imports → qc → docs)
+# and runs on-demand based on configuration changes.
+# ==============================================================================
+on:
+  # ============================================================================
+  # TRIGGER 1: Push Events (for configuration changes)
+  # ============================================================================
+  # Triggers when ODK configuration files are modified and pushed
+  #
+  # Monitored files:
+  # - src/ontology/*-odk.yaml : Ontology-specific ODK configuration
+  # - project-odk.yaml : Root project configuration
+  #
+  # Why these files?
+  # - Changes to ODK config require repository structure updates
+  # - Ensures repo stays synchronized with configuration
+  # - Examples: Adding components, changing release settings, updating imports
+  #
+  # Examples of changes that trigger:
+  # - Adding new component products
+  # - Changing import configurations
+  # - Modifying release settings
+  # - Updating metadata (title, description, etc.)
+  # ============================================================================
+  push:
+    branches: ["main"]  # Triggers on any branch
+    paths:
+      - 'src/ontology/*-odk.yaml'
+      - 'project-odk.yaml'
+
+  # ============================================================================
+  # TRIGGER 2: Pull Request Events (for PR validation)
+  # ============================================================================
+  # Same as push trigger, but for pull requests
+  # Validates that configuration updates work correctly before merge
+  # Note: Commits are skipped for PRs (see commit step conditions)
+  # ============================================================================
+  pull_request:
+    branches: ["main"]
+    paths:
+      - 'src/ontology/*-odk.yaml'
+      - 'project-odk.yaml'
+
+  # ============================================================================
+  # TRIGGER 3: Manual Trigger (for forced updates)
+  # ============================================================================
+  # Allows manual execution via GitHub UI
+  # Useful for:
+  # - Testing configuration updates without file changes
+  # - Forcing synchronization after external changes
+  # - Troubleshooting configuration issues
+  # ============================================================================
+  workflow_dispatch:
+
+  # ============================================================================
+  # TRIGGER 4: Repository Dispatch (optional, for workflow integration)
+  # ============================================================================
+  # Can be triggered by other workflows if needed
+  # Not used in standard workflow chain, but available for custom integrations
+  # ============================================================================
+  repository_dispatch:
+    types: [trigger-update-repo]
+
+# ==============================================================================
+# ENVIRONMENT VARIABLES
+# ==============================================================================
+# Global variables available to all jobs in this workflow
+# ==============================================================================
+env:
+  # Default branch for git operations
+  DEFAULT_BRANCH: main
+
+# ==============================================================================
+# JOBS
+# ==============================================================================
+jobs:
+  # ============================================================================
+  # JOB 1: check-ontology-dir
+  # ============================================================================
+  # Pre-flight check to verify ontology directory exists
+  #
+  # Purpose: Prevents workflow failure in empty/misconfigured repositories
+  # - Runs before main job (cheap safety check)
+  # - Outputs boolean flag for conditional job execution
+  # - Skips workflow gracefully if src/ontology/ doesn't exist
+  # ============================================================================
+  check-ontology-dir:
+    runs-on: ubuntu-latest
+    
+    # Job outputs (available to dependent jobs via needs.check-ontology-dir.outputs)
+    outputs:
+      dir-exists: ${{ steps.check.outputs.exists }}
+    
+    steps:
+      # ========================================================================
+      # STEP 1.1: Checkout Repository
+      # ========================================================================
+      # Fetch repository code for directory check
+      # Lightweight checkout (no full history needed for directory check)
+      # ========================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ========================================================================
+      # STEP 1.2: Check for Ontology Directory
+      # ========================================================================
+      # Verifies src/ontology/ exists and sets output flag
+      # ========================================================================
+      - name: Check for ontology directory
+        id: check
+        run: |
+          if [ -d "src/ontology" ]; then
+            echo "Ontology directory found."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "No src/ontology directory found; skipping workflow."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ============================================================================
+  # JOB 2: update-config
+  # ============================================================================
+  # Main job that performs repository configuration updates
+  #
+  # Dependencies: Requires check-ontology-dir to pass
+  # Condition: Only runs if src/ontology/ directory exists
+  # Container: ODK full image with all necessary tools
+  # ============================================================================
+  update-config:
+    runs-on: ubuntu-latest
+    
+    # Grant write permissions for committing updated configs
+    permissions:
+      contents: write
+    
+    # Job dependencies
+    needs: check-ontology-dir
+    
+    # Conditional execution: only run if directory exists
+    if: needs.check-ontology-dir.outputs.dir-exists == 'true'
+    
+    # Use ODK container for consistent tooling environment
+    # Version v1.6 pinned for reproducibility
+    # Includes: ROBOT, OWLTools, make, Java, Python
+    container: obolibrary/odkfull:v1.6
+
+    steps:
+      # ========================================================================
+      # STEP 2.1: Checkout Repository
+      # ========================================================================
+      # Fetch complete repository with full git history
+      #
+      # Why fetch-depth: 0?
+      # - Full history may be needed for ODK make targets
+      # - Allows git operations that reference commits/branches
+      # - Required for accurate configuration synchronization
+      # ========================================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history
+
+      # ========================================================================
+      # STEP 2.2: Configure Git
+      # ========================================================================
+      # Sets up git identity for automated commits
+      #
+      # Why configure git?
+      # - Required for making commits in containerized environment
+      # - Uses GitHub Actions bot identity to distinguish from human commits
+      # - safe.directory required when running in Docker containers
+      #
+      # Bot identity format:
+      # - Name: github-actions[bot]
+      # - Email: github-actions[bot]@users.noreply.github.com
+      # - This is the standard GitHub Actions bot identity
+      # ========================================================================
+      - name: Configure Git
+        run: |
+          # Set git user identity for commits
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Add workspace as safe directory (required in containers)
+          git config --global --add safe.directory $GITHUB_WORKSPACE
+
+      # ========================================================================
+      # STEP 2.3: Run ODK Update Repo
+      # ========================================================================
+      # Updates repository structure using ODK make targets
+      #
+      # Process:
+      # 1. Detect ontology ID from project-odk.yaml
+      # 2. Copy project-odk.yaml to expected ODK location
+      # 3. Run make update_repo to synchronize repository
+      #
+      # Why copy config file?
+      # - ODK expects config at src/ontology/${ONT_ID}-odk.yaml
+      # - Root project-odk.yaml is our source of truth
+      # - Copy ensures ODK can find and use the configuration
+      #
+      # What update_repo does:
+      # - Regenerates owlnet configuration files
+      # - Updates SPARQL query templates
+      # - Synchronizes release artifact configurations
+      # - Updates documentation templates
+      # - Regenerates Makefile components (if changed)
+      #
+      # Make flags:
+      # - -B: Force rebuild (treats all targets as needing update)
+      #
+      # Error handling:
+      # - Exits with error if ontology ID cannot be detected
+      # - Provides clear error message for troubleshooting
+      #
+      # Read more: https://github.com/INCATools/ontology-development-kit#update_repo
+      # ========================================================================
+      - name: Run ODK Update Repo
+        working-directory: src/ontology
+        run: |
+          # ===== Detect Ontology ID =====
+          # Extract ontology ID from root project-odk.yaml
+          # grep: Find line starting with "id:"
+          # head -n1: Take first match (handles multiple lines)
+          # awk: Extract second field (the actual ID value)
+          ONT_ID=$(grep "^id:" ../../project-odk.yaml | head -n1 | awk '{print $2}')
+          
+          # Validate that ID was found
+          if [ -z "$ONT_ID" ]; then
+             echo "Error: Could not detect Ontology ID from project-odk.yaml"
+             echo "Expected format: 'id: <ontology-id>' in project-odk.yaml"
+             exit 1
+          fi
+
+          echo "Detected Ontology ID: $ONT_ID"
+
+          # ===== Copy Configuration to Expected Location =====
+          # ODK expects config at src/ontology/${ONT_ID}-odk.yaml
+          # Copy root config to this location for ODK processing
+          echo "Copying project-odk.yaml to ${ONT_ID}-odk.yaml..."
+          cp ../../project-odk.yaml "${ONT_ID}-odk.yaml"
+          
+          # ===== Run Update Command =====
+          # Synchronize repository structure with configuration
+          # -B flag forces rebuild of all targets
+          echo "Running make update_repo..."
+          make update_repo -B
+          
+          echo "Repository configuration update complete."
+
+      # ========================================================================
+      # STEP 2.4: Commit Configuration Changes
+      # ========================================================================
+      # Commits updated configuration files back to the repository
+      #
+      # Conditions:
+      # - Only runs for push/dispatch events (not pull requests)
+      # - Only commits if changes detected (action skips empty commits)
+      #
+      # What gets committed:
+      # - src/ directory : All updated configuration files
+      #   - owlnet configuration
+      #   - SPARQL query templates
+      #   - Release artifact configurations
+      #   - Documentation templates
+      #   - Updated Makefile components
+      #
+      # Commit metadata:
+      # - Message: Descriptive message indicating ODK config update
+      # - Author: github-actions[bot] (distinguishes from human commits)
+      #
+      # Why commit entire src/ directory?
+      # - update_repo may modify multiple files in different locations
+      # - Safer to capture all changes than risk missing files
+      # - Git only commits actual changes, so no harm in broad path
+      # ========================================================================
+      - name: Commit changes
+        # Skip commits for pull requests (review changes manually in PR)
+        if: github.event_name != 'pull_request'
+        uses: EndBug/add-and-commit@v9
+        with:
+          # Descriptive commit message for git history
+          message: "ODK: Update repo configuration"
+          
+          # Add all changes in src/ directory
+          # This captures all files modified by update_repo
+          add: "src"
+          
+          # Working directory (repository root)
+          cwd: "."
+          
+          # Use GitHub Actions bot as commit author
+          default_author: github_actions
+          
+          # Push to current branch
+          push: true
+
+# ==============================================================================
+# WORKFLOW NOTES
+# ==============================================================================
+# This workflow is independent and does NOT trigger other workflows in the chain.
+# It runs whenever ODK configuration files are modified and ensures the
+# repository structure stays synchronized with the configuration.
+#
+# Typical use cases:
+# 1. Adding new component products → update_repo generates component structure
+# 2. Changing import settings → update_repo updates import processing
+# 3. Modifying release settings → update_repo updates release configurations
+# 4. Updating metadata → update_repo regenerates documentation templates
+#
+# To integrate with workflow chain (if needed in future):
+# Add a final step to trigger another workflow:
+#   - name: Trigger Next Workflow
+#     uses: peter-evans/repository-dispatch@v3
+#     with:
+#       token: ${{ secrets.GITHUB_TOKEN }}
+#       event-type: trigger-<next-workflow>
+# ==============================================================================
