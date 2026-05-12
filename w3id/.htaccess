@@ -1,0 +1,50 @@
+# .htaccess for Platform MaterialDigital ontology permanent URIs
+# Place this file at pmd/YOUR_ONTOLOGY_ID/.htaccess in the materialdigital/w3id fork.
+#
+# Replace the following placeholders before submitting your PR:
+#   YOUR_ONTOLOGY_ID  — the short lowercase ID of your ontology (e.g. myont)
+#                       must match the path registered in w3id: /pmd/YOUR_ONTOLOGY_ID
+#   YOUR_GITHUB_ORG   — the GitHub organisation or user hosting your repo (e.g. materialdigital)
+#   YOUR_REPO_NAME    — the repository name (e.g. my-application-ontology)
+#
+# Result: https://w3id.org/pmd/YOUR_ONTOLOGY_ID  →  https://YOUR_GITHUB_ORG.github.io/YOUR_REPO_NAME
+# Versioned: https://w3id.org/pmd/YOUR_ONTOLOGY_ID/1.0.0  →  …/1.0.0/…
+
+RewriteEngine On
+
+SetEnvIf Request_URI ^/pmd/YOUR_ONTOLOGY_ID$                           ONT_BASE=https://YOUR_GITHUB_ORG.github.io/YOUR_REPO_NAME
+SetEnvIf Request_URI ^/pmd/YOUR_ONTOLOGY_ID/(.*)$                      ONT_ANCHOR=$1 ONT_BASE=https://YOUR_GITHUB_ORG.github.io/YOUR_REPO_NAME
+SetEnvIf Request_URI ^/pmd/YOUR_ONTOLOGY_ID/(\d+\.\d+\.\d+)$          ONT_VERSION=/$1 ONT_BASE=https://YOUR_GITHUB_ORG.github.io/YOUR_REPO_NAME
+SetEnvIf Request_URI ^/pmd/YOUR_ONTOLOGY_ID/(\d+\.\d+\.\d+)/(.*)$     ONT_VERSION=/$1 ONT_ANCHOR=$2 ONT_BASE=https://YOUR_GITHUB_ORG.github.io/YOUR_REPO_NAME
+
+# HTML
+RewriteCond %{HTTP_ACCEPT} !application/rdf\+xml.*(text/html|application/xhtml\+xml)
+RewriteCond %{HTTP_ACCEPT} text/html [OR]
+RewriteCond %{HTTP_ACCEPT} application/xhtml\+xml
+RewriteRule ^(.*)$ %{ENV:ONT_BASE}%{ENV:ONT_VERSION}/index-en.html#%{ENV:ONT_ANCHOR} [R=303,L,NE]
+
+# JSON-LD
+RewriteCond %{HTTP_ACCEPT} application/ld\+json
+RewriteRule ^(.*)$ %{ENV:ONT_BASE}%{ENV:ONT_VERSION}/ontology.jsonld [R=303,L]
+
+# RDF/XML
+RewriteCond %{HTTP_ACCEPT} \*/\* [OR]
+RewriteCond %{HTTP_ACCEPT} application/rdf\+xml
+RewriteRule ^(.*)$ %{ENV:ONT_BASE}%{ENV:ONT_VERSION}/ontology.owl [R=303,L]
+
+# N-Triples
+RewriteCond %{HTTP_ACCEPT} application/n-triples
+RewriteRule ^(.*)$ %{ENV:ONT_BASE}%{ENV:ONT_VERSION}/ontology.nt [R=303,L]
+
+# Turtle
+RewriteCond %{HTTP_ACCEPT} text/turtle [OR]
+RewriteCond %{HTTP_ACCEPT} text/\* [OR]
+RewriteCond %{HTTP_ACCEPT} \*/turtle
+RewriteRule ^(.*)$ %{ENV:ONT_BASE}%{ENV:ONT_VERSION}/ontology.ttl [R=303,L]
+
+# Unsupported accept type
+RewriteCond %{HTTP_ACCEPT} .+
+RewriteRule ^.*$ %{ENV:ONT_BASE}%{ENV:ONT_VERSION}/406.html [R=406,L]
+
+# Default — RDF/XML
+RewriteRule ^(.*)$ %{ENV:ONT_BASE}%{ENV:ONT_VERSION}/base_ontology.rdf [R=303,L]

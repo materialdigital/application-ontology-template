@@ -33,7 +33,3 @@
 # ==============================================================================
 # Add your imports below this line
 # ==============================================================================
-
-logo|https://raw.githubusercontent.com/materialdigital/logistics-application-ontology/refs/heads/main/log-full.owl
-tto|https://raw.githubusercontent.com/materialdigital/tensile-test-ontology/refs/heads/main/tto-full.owl
-hto|https://raw.githubusercontent.com/materialdigital/heat-treatment-application-ontology/refs/heads/main/src/ontology/hto-full.owl

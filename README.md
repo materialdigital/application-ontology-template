@@ -1,192 +1,103 @@
+# application-ontology-template
 
-![Build Status](https://github.com/materialdigital/logistics-application-ontology/actions/workflows/qc.yml/badge.svg)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19629237.svg)](https://doi.org/10.5281/zenodo.19629237)
-
-# Platform Material Digital — Logistics Application Ontology (LOG)
-
-The PMD Logistics Application Ontology (LOG) is a BFO- and IOF-conformant ontology for logistics and supply chain management. It extends the [PMD Core Ontology (PMDCo)](https://w3id.org/pmd/co) and is adopted from the [IOF Supply Chain Module](https://spec.industrialontologies.org/ontology/supplychain/Metadatasupplychain/supplychainModule).
-
-More information: **https://w3id.org/pmd/log/**
+Template repository for starting a [Platform MaterialDigital (PMD)](https://materialdigital.de) application ontology. Preconfigured with GitHub Actions workflows using the [Ontology Development Kit (ODK)](https://github.com/INCATools/ontology-development-kit).
 
 ---
 
-## Contents
+## Quick Start
 
-- [Scope](#scope)
-- [Imports](#imports)
-- [Key Classes](#key-classes)
-- [Usage Patterns](#usage-patterns)
-- [Versions](#versions)
-- [Development](#development)
-- [Contact](#contact)
+### 1. Create your repository
 
----
+Click **Use this template** → **Create a new repository**.
 
-## Scope
+### 2. Configure GitHub settings (one-time)
 
-LOG covers the following domains:
+**GitHub Pages** — Settings → Pages → Build and deployment → Source:
+- Set to **Deploy from a branch**
+- Branch: `gh-pages` / `(root)`
 
-- **Organizations and roles** — business organizations, suppliers, manufacturers, carriers, freight forwarders and their BFO-aligned roles; integrated with [W3C ORG vocabulary](https://www.w3.org/TR/vocab-org/) for membership, posts, and sites
-- **Persons** — modeled via [FOAF](http://xmlns.com/foaf/0.1/) (`foaf:Person`), linked to organizations through `org:Membership` and `org:Post`
-- **Physical premises and locations** — `LOG:LOG_1000146` (physical premises, BFO object aggregate) aligned to `org:Site`; geospatial sites (`PMD:PMD_0040029`, BFO:0000029) for spatial modeling; ship-from/ship-to locations with WGS84 coordinates
-- **Shipments and cargo** — shipment, load, cargo, lot, traceable resource unit, bill of lading, purchase order
-- **Transport** — transport process, seaway, airway, shipping route, multimodal chains via supply chain nodes
-- **Facilities** — facility, storage facility, distribution center, warehouse; subclassing `LOG:LOG_1000146 → org:Site`
-- **Agreements and contracts** — commercial service agreement, bill of lading, purchase order, framework contracts
-- **Processes** — transport, receiving, warehousing, packaging, procurement, selling, manufacturing, supply chain processes
-- **Business functions** — freight forwarding, transportation, logistics service, manufacturing service
-- **Plan specifications** — shipment plan, warehousing plan, supply chain plan, packaging plan
+> This is required for versioned documentation. The docs workflow accumulates version directories on the `gh-pages` branch without overwriting previous releases.
 
----
+**Actions permissions** — Settings → Actions → General:
+- Workflow permissions: **Read and write**
+- Enable **Allow GitHub Actions to create and approve pull requests**
 
-## Imports
+### 3. Run the Setup workflow
 
-| Import | Type | Source |
-|--------|------|--------|
-| `pmdco` | mirror | [PMD Core Ontology 3.0.0](https://w3id.org/pmd/co/3.0.0) |
-| `org` | SLME | [W3C Organization Ontology](https://www.w3.org/ns/org) |
-| `foaf` | custom | [FOAF Vocabulary](http://xmlns.com/foaf/0.1/) — with OWL DL violation fix removing `schema:Person`/`contact:Person` equivalencies |
+Actions → **Setup New Ontology** → Run workflow.
+
+Set `id` and `uribase_suffix` — both are usually the same lowercase acronym (e.g. `myont`). The workflow scaffolds `src/ontology/`, commits everything, and opens a pull request.
+
+Review and merge that pull request.
+
+### 4. Build your ontology
+
+Edit the `*-edit.owl` file in `src/ontology/`. Every push to `main` triggers the CI pipeline: quality checks, import refresh, and documentation rebuild.
 
 ---
 
-## Key Classes
+## Releasing
 
-| IRI | Label | BFO alignment |
-|-----|-------|---------------|
-| `LOG:LOG_1000047` | business organization | `BFO:0000027`, `org:FormalOrganization` |
-| `LOG:LOG_1000050` | organization | `BFO:0000027`, `org:FormalOrganization` |
-| `LOG:LOG_1000146` | physical premises | `BFO:0000027 ∩ ∃BFO:0000082.PMD_0040029`, `org:Site` |
-| `LOG:LOG_1000032` | facility | `LOG_1000146` |
-| `LOG:LOG_1000034` | storage facility | `LOG_1000032` |
-| `LOG:LOG_1000051` | shipment | `BFO:0000027` |
-| `LOG:LOG_1000029` | material product | `BFO:0000040` |
-| `LOG:LOG_1000143` | transport process | `BFO:0000015` |
-| `LOG:LOG_1000129` | warehousing process | `LOG_1000146` context |
-| `LOG:LOG_1000001` | commercial service agreement | `IAO:0000030` (information content entity) |
-| `LOG:LOG_1000002` | bill of lading | `IAO:0000030` |
-| `LOG:LOG_1000088` | ship from location | `PMD:PMD_0040029` |
-| `LOG:LOG_1000089` | ship to location | `PMD:PMD_0040029` |
-| `LOG:LOG_1000090` | supply chain node | `PMD:PMD_0040029` |
+Two equivalent ways to publish a versioned release:
 
----
+**Option A — workflow dispatch (recommended):**
+Actions → **Release Ontology** → Run workflow → enter version (e.g. `1.0.0`).
 
-## Usage Patterns
-
-Patterns demonstrate how to model real-world logistics scenarios using this ontology. Each pattern provides:
-
-- **`pattern.md`** — description, entities, and key properties
-- **`shape.ttl`** — hand-written SHACL shapes for validation
-- **`shape-data.ttl`** — real-world annotated example data (with coordinates, addresses, named organizations)
-
-Patterns are validated with [pyshacl](https://github.com/RDFLib/pySHACL). SHACL shapes can also be auto-generated from the ontology axioms using the [autoshape pipeline](#autoshape-pipeline).
-
-### Shipment by Sea
-
-Models a steel coil shipment from Baosteel (Shanghai) to Volkswagen (Hamburg) via COSCO sea freight.
-
-**Entities:** shipment, material product, ship-from/ship-to locations (with WGS84 coordinates), bill of lading, consignor/consignee organizations, transport process.
-
-[View pattern](patterns/shipment-by-sea/pattern.md) · [Visualize data](https://thhanke.github.io/visgraph/?rdfUrl=https://raw.githubusercontent.com/materialdigital/logistics-application-ontology/refs/heads/main/patterns/shipment-by-sea/shape-data.ttl)
-
-### Contract Negotiation
-
-Models an annual steel supply framework agreement negotiated between Baosteel and Volkswagen AG, signed by named representatives holding formal organizational posts.
-
-**Entities:** commercial service agreement, selling process, persons with titles, `org:Post`, buyer/supplier roles, HQ sites with coordinates.
-
-[View pattern](patterns/contract-negotiation/pattern.md) · [Visualize data](https://thhanke.github.io/visgraph/?rdfUrl=https://raw.githubusercontent.com/materialdigital/logistics-application-ontology/refs/heads/main/patterns/contract-negotiation/shape-data.ttl)
-
-### Warehouse Receiving
-
-Models steel coils arriving at DB Schenker's Hamburg logistics centre, covering the receiving process and subsequent warehousing under a quarterly buffer stock plan.
-
-**Entities:** storage facility (with address and coordinates), receiving process, warehousing process, warehousing plan specification, material product.
-
-[View pattern](patterns/warehouse-receiving/pattern.md) · [Visualize data](https://thhanke.github.io/visgraph/?rdfUrl=https://raw.githubusercontent.com/materialdigital/logistics-application-ontology/refs/heads/main/patterns/warehouse-receiving/shape-data.ttl)
-
-### Multimodal Transport
-
-Models automotive parts shipped from Busan to Düsseldorf via Maersk sea freight (Busan → Rotterdam) followed by DB Schenker road freight (Rotterdam → Düsseldorf), with Rotterdam as the intermodal supply chain node.
-
-**Entities:** two transport process legs, supply chain node, three geospatial sites (with coordinates), two carriers, shipment continuity across legs, temporal ordering.
-
-[View pattern](patterns/multimodal-transport/pattern.md) · [Visualize data](https://thhanke.github.io/visgraph/?rdfUrl=https://raw.githubusercontent.com/materialdigital/logistics-application-ontology/refs/heads/main/patterns/multimodal-transport/shape-data.ttl)
-
-### Autoshape Pipeline
-
-SHACL shapes are auto-generated from the ontology axioms in three strictness profiles using [owl2shacl](https://github.com/sparna-git/owl2shacl):
-
-| Profile | File | Description |
-|---------|------|-------------|
-| Open | `patterns/autoshape/auto-shapes-open.ttl` | Properties from other ontologies allowed |
-| Semi-closed | `patterns/autoshape/auto-shapes-semi-closed.ttl` | Domain constraints validated |
-| Closed | `patterns/autoshape/auto-shapes-closed.ttl` | Only declared properties allowed |
-
-**Generate shapes:**
+**Option B — git tag:**
 ```bash
-cd src/ontology
-sh utils/generate-auto-shapes.sh
+git tag v1.0.0 && git push origin v1.0.0
 ```
 
-**Validate a pattern:**
-```bash
-cd patterns
-sh test.sh shipment-by-sea
-```
+The release workflow:
+1. Builds all serialization artifacts (OWL, TTL, JSON-LD) via ODK
+2. Sets `owl:versionIRI` to `<ontbase>/<version>` (e.g. `https://w3id.org/pmd/myont/1.0.0`)
+3. Commits artifacts to `main` and creates a `v<version>` git tag
+4. Creates a GitHub release with OWL / TTL / JSON-LD attached
+5. Triggers a versioned documentation build
 
-**Validate all patterns (make target):**
-```bash
-cd src/ontology
-make validate-patterns
+Version format: semver without the `v` prefix — `1.0.0`, `2.1.3`, etc.
+
+---
+
+## Versioned Documentation Structure
+
+After each release, GitHub Pages serves:
+
+```text
+/                     root index — lists all versions
+/dev/                 latest build from main (updated on every push)
+/dev/doc/             Widoco HTML — development version
+/1.0.0/               semver release (preserved forever)
+/1.0.0/doc/           Widoco HTML for v1.0.0
+/1.0.0/doc/ontology.ttl
+/1.0.0/doc/ontology.owl
 ```
 
 ---
 
-## Versions
+## Permanent URLs via w3id
 
-### Stable release
+[w3id.org](https://w3id.org) provides stable, persistent URIs for ontologies. Requests to `https://w3id.org/pmd/<id>` are redirected to your GitHub Pages site via content negotiation.
 
-Latest release always at: **https://w3id.org/pmd/log.owl**
+### Setup steps
 
-### Release artefacts
+1. **Fork** [materialdigital/w3id](https://github.com/materialdigital/w3id).
+2. Create the directory `pmd/<id>/` in your fork.
+3. Copy [`w3id/.htaccess`](w3id/.htaccess) from this repo into that directory.
+4. Replace all `YOUR_ONTOLOGY_ID`, `YOUR_GITHUB_ORG`, and `YOUR_REPO_NAME` placeholders.
+5. Open a pull request against the upstream `materialdigital/w3id` repo.
 
-| Artefact | Description |
-|----------|-------------|
-| `log.owl` / `log.ttl` | Full ontology with all imports merged |
-| `log-full.owl` / `log-full.ttl` | Full with inferred axioms (primary release) |
-| `log-base.owl` / `log-base.ttl` | Base — no imports merged |
-| `log-simple.owl` / `log-simple.ttl` | Simplified, classified, imports filtered |
+### Content negotiation
 
-### Editors' version
+The `.htaccess` handles content negotiation automatically:
 
-[src/ontology/log-edit.owl](src/ontology/log-edit.owl)
+| Accept header              | Redirects to                   |
+| -------------------------- | ------------------------------ |
+| `text/html`                | `/index-en.html` (Widoco)      |
+| `application/ld+json`      | `/ontology.jsonld`             |
+| `application/rdf+xml`      | `/ontology.owl`                |
+| `text/turtle`              | `/ontology.ttl`                |
+| `application/n-triples`    | `/ontology.nt`                 |
+| *(default)*                | `/base_ontology.rdf`           |
 
----
-
-## Development
-
-This repository uses the [Ontology Development Kit (ODK)](https://github.com/INCATools/ontology-development-kit).
-
-**Run quality checks:**
-```bash
-cd src/ontology
-docker run --rm -v $(pwd)/../../:/work -w /work/src/ontology obolibrary/odkfull:latest make IMP=false MIR=false
-```
-
-**Refresh imports:**
-```bash
-cd src/ontology
-docker run --rm -v $(pwd)/../../:/work -w /work/src/ontology obolibrary/odkfull:latest make all_imports
-```
-
-Customizations to the build pipeline belong in [src/ontology/log.Makefile](src/ontology/log.Makefile) — this file is never overwritten by ODK updates.
-
----
-
-## Contact
-
-Please use the [Issue tracker](https://github.com/materialdigital/logistics-application-ontology/issues) to request new terms or report errors.
-
-## Acknowledgements
-
-This ontology repository was created using the [Ontology Development Kit (ODK)](https://github.com/INCATools/ontology-development-kit). The autoshape pipeline uses [owl2shacl rulesets](https://github.com/sparna-git/owl2shacl) derived from work by TopQuadrant, adapted from [PMD Core Ontology](https://github.com/materialdigital/core-ontology).
+Versioned IRIs (`https://w3id.org/pmd/<id>/1.0.0`) resolve to the corresponding versioned directory on GitHub Pages.
